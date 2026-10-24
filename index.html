@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Flap">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#86d0e6">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Flap</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --page:#d9ecef;
+  --ink:#17323b;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--page:#0e1a21;--ink:#e6f1f3;color-scheme:dark}
+}
+:root[data-theme="dark"]{--page:#0e1a21;--ink:#e6f1f3;color-scheme:dark}
+html{height:100%;overscroll-behavior:none;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0;height:100%;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--page);color:var(--ink);
+  font-family:ui-rounded,"Trebuchet MS",system-ui,sans-serif;
+  -webkit-user-select:none;user-select:none;touch-action:manipulation;
+}
+canvas{display:block;border-radius:16px;touch-action:none;cursor:pointer;box-shadow:0 6px 28px rgba(0,0,0,.22)}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Flap game. Press Space, click or tap to flap."></canvas>
+<script>
+(function(){
+  var W=360,H=560,GROUND=70,GAP=150,PW=62,R=13;
+  var cv=document.getElementById('c'),ctx=cv.getContext('2d');
+  var mq=window.matchMedia('(prefers-color-scheme: dark)');
+  function dark(){var t=document.documentElement.getAttribute('data-theme');return t?t==='dark':mq.matches}
+  var PAL={
+    light:{sk0:'#86d0e6',sk1:'#fbe5c2',pipe:'#3f9a82',edge:'#27695a',gr:'#dcbb82',gr2:'#b8935a',bird:'#f2a33a',wing:'#e0802a',txt:'#ffffff',ln:'#17323b',panel:'rgba(255,255,255,.86)',pt:'#17323b'},
+    dark:{sk0:'#101d33',sk1:'#443a62',pipe:'#34897a',edge:'#1f5547',gr:'#3b3150',gr2:'#2a2238',bird:'#f6b04a',wing:'#e58b33',txt:'#ffffff',ln:'#0b1018',panel:'rgba(20,24,38,.88)',pt:'#e6f1f3'}
+  };
+  var best=0;
+  try{best=parseInt(localStorage.getItem('flap-best'),10)||0}catch(e){}
+
+  var state='ready',bird,pipes,spawn,score,gx,t=0,deadAt=0,last=0;
+  function reset(){
+    bird={x:90,y:(H-GROUND)/2,vy:0};
+    pipes=[];spawn=0.9;score=0;state='ready';
+  }
+  reset();
+
+  function resize(){
+    var dpr=Math.min(window.devicePixelRatio||1,3);
+    var aw=document.body.clientWidth-16,ah=document.body.clientHeight-16;
+    var s=Math.min(aw/W,ah/H);
+    cv.style.width=Math.floor(W*s)+'px';cv.style.height=Math.floor(H*s)+'px';
+    cv.width=Math.floor(W*s*dpr);cv.height=Math.floor(H*s*dpr);
+    ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0);
+  }
+  window.addEventListener('resize',resize);resize();
+
+  function flap(){
+    if(state==='ready'){state='play';bird.vy=-420}
+    else if(state==='play'){bird.vy=-420}
+    else if(state==='over'&&performance.now()-deadAt>500){reset()}
+  }
+  document.addEventListener('pointerdown',function(e){e.preventDefault();flap()});
+  document.addEventListener('keydown',function(e){
+    if(e.code==='Space'||e.code==='ArrowUp'||e.code==='Enter'){e.preventDefault();if(!e.repeat)flap()}
+  });
+  document.addEventListener('visibilitychange',function(){last=0});
+
+  function die(){
+    state='over';deadAt=performance.now();
+    if(score>best){best=score;try{localStorage.setItem('flap-best',String(best))}catch(e){}}
+  }
+  function hit(p){
+    var cx=Math.max(p.x,Math.min(bird.x,p.x+PW));
+    var top=Math.max(0,Math.min(bird.y,p.gy));
+    var bot=Math.max(p.gy+GAP,Math.min(bird.y,H-GROUND));
+    var dx=bird.x-cx;
+    return (dx*dx+(bird.y-top)*(bird.y-top)<R*R&&bird.y<p.gy)||(dx*dx+(bird.y-bot)*(bird.y-bot)<R*R&&bird.y>p.gy+GAP)||
+      (bird.x+R>p.x&&bird.x-R<p.x+PW&&(bird.y-R<p.gy||bird.y+R>p.gy+GAP)&&cx===bird.x);
+  }
+
+  function update(dt){
+    t+=dt;
+    if(state!=='over')gx=((gx||0)-150*dt)%24;
+    if(state==='ready'){bird.y=(H-GROUND)/2+Math.sin(t*5)*6;return}
+    bird.vy+=1400*dt;bird.y+=bird.vy*dt;
+    if(bird.y<R){bird.y=R;if(bird.vy<0)bird.vy=0}
+    if(bird.y>H-GROUND-R){bird.y=H-GROUND-R;if(state==='play')die();bird.vy=0}
+    if(state!=='play')return;
+    spawn-=dt;
+    if(spawn<=0){spawn=1.45;pipes.push({x:W+10,gy:60+Math.random()*(H-GROUND-120-GAP),done:false})}
+    for(var i=pipes.length-1;i>=0;i--){
+      var p=pipes[i];p.x-=150*dt;
+      if(!p.done&&p.x+PW<bird.x){p.done=true;score++}
+      if(p.x<-PW-10)pipes.splice(i,1);
+      else if(hit(p)){die();break}
+    }
+  }
+
+  function text(s,x,y,size,c,pal){
+    ctx.font='800 '+size+'px ui-rounded,"Trebuchet MS",system-ui,sans-serif';
+    ctx.textAlign='center';ctx.lineJoin='round';
+    ctx.lineWidth=size/6;ctx.strokeStyle=pal.ln;ctx.strokeText(s,x,y);
+    ctx.fillStyle=c;ctx.fillText(s,x,y);
+  }
+  function panel(pal,y,h){
+    ctx.fillStyle=pal.panel;
+    ctx.beginPath();ctx.roundRect(40,y,W-80,h,16);ctx.fill();
+  }
+
+  function draw(){
+    var pal=dark()?PAL.dark:PAL.light;
+    var g=ctx.createLinearGradient(0,0,0,H-GROUND);
+    g.addColorStop(0,pal.sk0);g.addColorStop(1,pal.sk1);
+    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+
+    pipes.forEach(function(p){
+      ctx.fillStyle=pal.pipe;ctx.strokeStyle=pal.edge;ctx.lineWidth=3;
+      ctx.fillRect(p.x,0,PW,p.gy);ctx.strokeRect(p.x,-3,PW,p.gy+3);
+      ctx.fillRect(p.x,p.gy+GAP,PW,H);ctx.strokeRect(p.x,p.gy+GAP,PW,H);
+      ctx.fillRect(p.x-5,p.gy-24,PW+10,24);ctx.strokeRect(p.x-5,p.gy-24,PW+10,24);
+      ctx.fillRect(p.x-5,p.gy+GAP,PW+10,24);ctx.strokeRect(p.x-5,p.gy+GAP,PW+10,24);
+    });
+
+    ctx.fillStyle=pal.gr;ctx.fillRect(0,H-GROUND,W,GROUND);
+    ctx.fillStyle=pal.gr2;ctx.fillRect(0,H-GROUND,W,6);
+    for(var x=(gx||0)-24;x<W+24;x+=24){ctx.fillRect(x,H-GROUND+22,12,6)}
+
+    ctx.save();
+    ctx.translate(bird.x,bird.y);
+    ctx.rotate(Math.max(-0.45,Math.min(1.2,bird.vy/520)));
+    ctx.fillStyle=pal.bird;ctx.strokeStyle=pal.ln;ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.ellipse(0,0,R+3,R,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+    var fl=state==='play'?Math.sin(t*28)*5:Math.sin(t*10)*3;
+    ctx.fillStyle=pal.wing;
+    ctx.beginPath();ctx.ellipse(-4,3+fl*0.4,8,5+Math.abs(fl)*0.3,-0.3,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(7,-4,5,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#111';ctx.beginPath();ctx.arc(8.5,-4,2,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#ef5b3c';ctx.beginPath();ctx.moveTo(13,0);ctx.lineTo(23,3);ctx.lineTo(13,7);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.restore();
+
+    if(state!=='ready')text(String(score),W/2,90,52,pal.txt,pal);
+    if(state==='ready'){
+      panel(pal,150,92);
+      ctx.fillStyle=pal.pt;ctx.textAlign='center';
+      ctx.font='800 26px ui-rounded,"Trebuchet MS",system-ui,sans-serif';
+      ctx.fillText('Flap',W/2,188);
+      ctx.font='600 15px ui-rounded,"Trebuchet MS",system-ui,sans-serif';
+      ctx.fillText('Tap, click or press Space',W/2,216);
+      ctx.fillText('Best: '+best,W/2,236);
+    }
+    if(state==='over'){
+      panel(pal,160,132);
+      ctx.fillStyle=pal.pt;ctx.textAlign='center';
+      ctx.font='800 28px ui-rounded,"Trebuchet MS",system-ui,sans-serif';
+      ctx.fillText('Game over',W/2,200);
+      ctx.font='600 17px ui-rounded,"Trebuchet MS",system-ui,sans-serif';
+      ctx.fillText('Score '+score+'   Best '+best,W/2,230);
+      ctx.fillText('Tap to play again',W/2,266);
+    }
+  }
+
+  function loop(ts){
+    var dt=last?Math.min((ts-last)/1000,0.033):0;last=ts;
+    update(dt);draw();requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
+})();
+</script>
+</body>
+</html>
